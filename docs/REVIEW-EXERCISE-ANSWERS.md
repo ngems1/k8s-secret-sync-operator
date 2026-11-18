@@ -54,6 +54,9 @@ debug rotations.
 `fetch` now skips values that fail "so one missing key doesn't block the others". A rotation
 that fails halfway produces a Secret with the **new username and the old password** (or no
 password at all): the application fails in confusing ways, at runtime, far from the cause.
+It also turns a secret deleted from the store (permanent, actionable `StoreError`) into "no
+value could be fetched", a *retryable* error: the owner sees `StoreUnavailable` forever and
+waits for an outage that isn't one.
 
 **Ask for:** keep all-or-nothing. If one key is optional, make that explicit per key (an
 annotation), not the default for all.
@@ -75,8 +78,11 @@ naming the same Secret now fight over it every resync (flapping, non-idempotent)
 
 `test_unlisted_namespace_is_refused` and `test_empty_policy_denies_everything` were deleted
 ("obsolete"), `test_all_or_nothing` now expects a partial write, and
-`test_refuses_a_secret_owned_by_another_configmap` is gone. The suite is green because the
-tests were made to agree with the bugs.
+`test_refuses_a_secret_owned_by_another_configmap` is gone. Three operator tests were
+"adjusted": the `team-b` case left `test_rejections_post_a_warning_once`, `test_store_errors`
+now expects a retry for a missing secret, and the handler test swapped its unlisted namespace
+for a bad provider. The suite is green (56 tests instead of 60) because the tests were made to
+agree with the bugs.
 
 **Ask for:** restore them. A PR that deletes the test for the behaviour it changes deserves the
 first and hardest question.
