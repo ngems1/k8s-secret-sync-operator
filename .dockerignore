@@ -1,0 +1,9 @@
+.venv/
+.e2e/
+.git/
+.github/
+docs/
+tests/
+examples/
+__pycache__/
+*.pyc
