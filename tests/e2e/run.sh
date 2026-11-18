@@ -68,7 +68,7 @@ pass "moto, lowkey-vault and secret-sync running"
 seed() {
   kubectl -n fakes run "seed-$RANDOM" --rm -i --restart=Never --quiet --image=secret-sync:e2e \
     --image-pull-policy=Never --env=AWS_ENDPOINT_URL=http://moto.fakes.svc.cluster.local:5000 \
-    --env=AWS_ACCESS_KEY_ID=test --env=AWS_SECRET_ACCESS_KEY=test --env=AWS_REGION=eu-west-1 \
+    --env=AWS_ACCESS_KEY_ID=test --env=AWS_SECRET_ACCESS_KEY=test --env=AWS_DEFAULT_REGION=eu-west-1 \
     --command -- python -c "$1"
 }
 seed '

@@ -93,7 +93,8 @@ spec:
               value: /etc/secret-sync/policy.toml
             - name: SECRET_SYNC_RESYNC_SECONDS
               value: "300"
-            - name: AWS_REGION
+            # botocore reads AWS_DEFAULT_REGION (AWS_REGION alone gave NoRegionError in the e2e).
+            - name: AWS_DEFAULT_REGION
               value: eu-west-1
           ports:
             - {name: health, containerPort: 8080}
