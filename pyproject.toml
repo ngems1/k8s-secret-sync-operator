@@ -1,0 +1,60 @@
+[project]
+name = "k8s-secret-sync-operator"
+version = "0.1.0"
+description = "Kubernetes operator: annotated ConfigMaps become Secrets from AWS Secrets Manager or Azure Key Vault"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.12"
+dependencies = [
+  "kopf>=1.45.2",
+  # <37: kubernetes 37 needs python-dateutil>=3, botocore pins <3 (resolver conflict, 2026-11).
+  "kubernetes>=36,<37",
+  "boto3>=1.44.4",
+  "azure-keyvault-secrets>=4.12.0",
+  "azure-identity>=1.27.0",
+  "prometheus-client>=0.26.0",
+]
+
+[build-system]
+requires = ["uv_build>=0.13.8,<0.14"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-name = "secret_sync"
+
+[dependency-groups]
+dev = [
+  "moto[secretsmanager]>=5.2.5",
+  "mypy>=1.19",
+  "pytest>=8.4",
+  "pytest-cov>=7.0",
+  "ruff>=0.17",
+]
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "S", "SIM", "RUF", "PT"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["secret_sync"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["S101", "S105", "S106"] # asserts and fake secret values in tests
+
+[tool.mypy]
+strict = true
+python_version = "3.12"
+files = ["src", "tests"]
+mypy_path = "src"
+
+[[tool.mypy.overrides]]
+module = ["kubernetes.*", "boto3.*", "botocore.*", "moto.*"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+addopts = "-q --strict-markers --cov=secret_sync --cov-report=term-missing --cov-fail-under=90"
