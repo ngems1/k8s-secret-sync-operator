@@ -1,0 +1,103 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 480" width="960" height="480" role="img" aria-labelledby="t d">
+  <title id="t">k8s-secret-sync-operator: ConfigMap references become Secrets</title>
+  <desc id="d">In namespace team-a, a ConfigMap annotated for secret-sync holds references such as team-a/app/db#password. The operator receives the watch event, checks the policy (team-a may read the team-a/ prefix), fetches the values from AWS Secrets Manager or Azure Key Vault, and writes the Secret app-db, owned by the ConfigMap, which the application pod mounts. A second ConfigMap in team-a references team-b/billing/token: the policy denies it, no Secret is created, and a Warning event explains why. Deleting the ConfigMap garbage-collects its Secret.</desc>
+  <style>
+    .bg { fill: #0f172a; }
+    .h1 { fill: #f8fafc; font: 700 22px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+    .h2 { fill: #94a3b8; font: 400 14px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+    .lbl { fill: #f1f5f9; font: 600 15px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+    .mono { fill: #e2e8f0; font: 400 12.5px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+    .sub { fill: #94a3b8; font: 400 12px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+    .ns { fill: #111c33; stroke: #334155; stroke-width: 1.5; stroke-dasharray: 6 4; }
+    .box { fill: #1e293b; stroke: #334155; stroke-width: 2; }
+    .op { fill: #1e293b; stroke: #334155; stroke-width: 2; animation: work 10s linear infinite; }
+    .line { stroke: #475569; stroke-width: 2; fill: none; }
+    .t1 { fill: #fbbf24; offset-path: path("M250,140 H360"); animation: t1 10s linear infinite; }
+    .t2 { fill: #38bdf8; offset-path: path("M600,140 H690"); animation: t2 10s linear infinite; }
+    .t3 { fill: #4ade80; offset-path: path("M360,176 H318 V300 H250"); animation: t3 10s linear infinite; }
+    .appear { opacity: 0; animation: 10s linear infinite; }
+    .a1 { animation-name: at22; } .a2 { animation-name: at40; } .a3 { animation-name: at58; }
+    .a4 { animation-name: at70; } .a5 { animation-name: at80; }
+    @keyframes work { 0%, 8% { stroke: #334155; } 10%, 60% { stroke: #fbbf24; } 63%, 100% { stroke: #334155; } }
+    @keyframes t1 { 0%, 4% { offset-distance: 0%; opacity: 0; } 5% { opacity: 1; } 14% { offset-distance: 100%; opacity: 1; } 15%, 100% { offset-distance: 100%; opacity: 0; } }
+    @keyframes t2 { 0%, 26% { offset-distance: 0%; opacity: 0; } 27% { opacity: 1; } 36% { offset-distance: 100%; opacity: 1; } 37%, 100% { offset-distance: 100%; opacity: 0; } }
+    @keyframes t3 { 0%, 44% { offset-distance: 0%; opacity: 0; } 45% { opacity: 1; } 56% { offset-distance: 100%; opacity: 1; } 57%, 100% { offset-distance: 100%; opacity: 0; } }
+    @keyframes at22 { 0%, 21% { opacity: 0; } 23%, 94% { opacity: 1; } 98%, 100% { opacity: 0; } }
+    @keyframes at40 { 0%, 39% { opacity: 0; } 41%, 94% { opacity: 1; } 98%, 100% { opacity: 0; } }
+    @keyframes at58 { 0%, 57% { opacity: 0; } 59%, 94% { opacity: 1; } 98%, 100% { opacity: 0; } }
+    @keyframes at70 { 0%, 69% { opacity: 0; } 71%, 94% { opacity: 1; } 98%, 100% { opacity: 0; } }
+    @keyframes at80 { 0%, 79% { opacity: 0; } 81%, 94% { opacity: 1; } 98%, 100% { opacity: 0; } }
+    @media (prefers-reduced-motion: reduce) {
+      * { animation: none !important; }
+      .appear { opacity: 1; }
+      .t1, .t2, .t3 { opacity: 0; }
+    }
+  </style>
+
+  <rect class="bg" width="960" height="480"/>
+  <text class="h1" x="40" y="38">ConfigMaps hold references, Secrets get the values</text>
+  <text class="h2" x="40" y="60">event-driven · deny-by-default policy per namespace · owned Secrets · no values in logs</text>
+
+  <!-- namespace team-a -->
+  <rect class="ns" x="24" y="78" width="250" height="380" rx="12"/>
+  <text class="sub" x="40" y="98">namespace team-a</text>
+  <rect class="box" x="40" y="110" width="210" height="62" rx="8"/>
+  <text class="lbl" x="54" y="132">ConfigMap app-db</text>
+  <text class="sub" x="54" y="152">DB_PASSWORD: team-a/app/db</text>
+  <text class="sub" x="54" y="166">            #password</text>
+
+  <g class="appear a3">
+    <rect x="40" y="276" width="210" height="62" rx="8" fill="#14532d" stroke="#22c55e" stroke-width="2"/>
+    <text class="lbl" x="54" y="298">Secret app-db</text>
+    <text class="sub" x="54" y="318" fill="#bbf7d0">owner: ConfigMap/app-db</text>
+  </g>
+  <g class="appear a4">
+    <rect x="40" y="352" width="210" height="40" rx="8" fill="#1e293b" stroke="#334155" stroke-width="2"/>
+    <text class="mono" x="54" y="377">pod app ← volume app-db</text>
+  </g>
+
+  <rect class="box" x="40" y="186" width="210" height="62" rx="8"/>
+  <text class="lbl" x="54" y="208">ConfigMap steal</text>
+  <text class="sub" x="54" y="228">TOKEN: team-b/billing/token</text>
+  <g class="appear a5">
+    <rect x="40" y="404" width="210" height="44" rx="8" fill="#450a0a" stroke="#f87171" stroke-width="2"/>
+    <text class="mono" x="54" y="423">⚠ Event: team-b/... is</text>
+    <text class="mono" x="54" y="439">  outside team-a's prefixes</text>
+  </g>
+
+  <!-- operator -->
+  <path class="line" d="M250,140 H360"/>
+  <rect class="op" x="360" y="96" width="240" height="94" rx="10"/>
+  <text class="lbl" x="376" y="120">secret-sync operator</text>
+  <text class="sub" x="376" y="142">watch ConfigMaps (kopf)</text>
+  <text class="sub" x="376" y="160">1 parse 2 policy 3 fetch all</text>
+  <text class="sub" x="376" y="178">4 write if hash changed</text>
+  <circle class="t1" r="6" cx="0" cy="0"/>
+
+  <g class="appear a1">
+    <rect x="360" y="210" width="240" height="56" rx="8" fill="#111c33" stroke="#334155" stroke-width="1.5"/>
+    <text class="mono" x="376" y="232">policy.toml (deny by default)</text>
+    <text class="sub" x="376" y="252">team-a → aws_prefixes ["team-a/"] ✓</text>
+  </g>
+
+  <!-- stores -->
+  <path class="line" d="M600,140 H690"/>
+  <rect class="box" x="690" y="86" width="240" height="56" rx="8"/>
+  <text class="lbl" x="706" y="110">AWS Secrets Manager</text>
+  <text class="sub" x="706" y="130">IRSA / Pod Identity, no keys</text>
+  <rect class="box" x="690" y="152" width="240" height="56" rx="8"/>
+  <text class="lbl" x="706" y="176">Azure Key Vault</text>
+  <text class="sub" x="706" y="196">Workload Identity</text>
+  <circle class="t2" r="6" cx="0" cy="0"/>
+  <g class="appear a2">
+    <rect x="690" y="226" width="240" height="40" rx="8" fill="#0c4a6e" stroke="#38bdf8" stroke-width="1.5"/>
+    <text class="mono" x="706" y="251">value fetched (never logged)</text>
+  </g>
+
+  <path class="line" d="M360,176 H318 V300 H250"/>
+  <circle class="t3" r="6" cx="0" cy="0"/>
+
+  <text class="sub" x="300" y="372">rotation in the store → picked up by the resync timer</text>
+  <text class="sub" x="300" y="392">ConfigMap deleted → Secret garbage-collected (ownerReference)</text>
+  <text class="sub" x="300" y="412">existing Secret not ours → never overwritten</text>
+</svg>
