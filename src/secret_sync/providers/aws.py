@@ -10,6 +10,7 @@ from __future__ import annotations
 from typing import Any
 
 import boto3
+from botocore.config import Config
 from botocore.exceptions import BotoCoreError, ClientError
 
 from secret_sync.providers import ProviderError
@@ -24,9 +25,14 @@ PERMANENT = {
 }
 
 
+# Fail fast and let the operator retry visibly (StoreUnavailable Event + backoff) instead of
+# botocore's 60 s connect timeout hiding an outage inside one handler call (drill 2).
+CLIENT_CONFIG = Config(connect_timeout=5, read_timeout=10, retries={"mode": "standard", "total_max_attempts": 3})
+
+
 class AwsSecretsManager:
     def __init__(self, client: Any | None = None) -> None:
-        self._client = client or boto3.client("secretsmanager")
+        self._client = client or boto3.client("secretsmanager", config=CLIENT_CONFIG)
 
     def get(self, secret_id: str) -> str:
         try:

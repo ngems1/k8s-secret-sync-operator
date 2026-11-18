@@ -25,6 +25,11 @@ from secret_sync.providers import ProviderError
 
 log = logging.getLogger(__name__)
 
+# Fail fast and let the operator retry: its retries are visible (a StoreUnavailable Event, then
+# kopf's backoff). The SDK default (10 retries, exponential backoff) blocked a handler for over
+# a minute with no Event during an outage (found by drill 2).
+CLIENT_OPTIONS: dict[str, Any] = {"retry_total": 2, "connection_timeout": 5, "read_timeout": 10}
+
 
 class _EmulatorCredential:
     """A token the emulator accepts. NEVER used against a real vault."""
@@ -40,14 +45,21 @@ class AzureKeyVault:
             from azure.keyvault.secrets import SecretClient
 
             if os.environ.get("SECRET_SYNC_AZURE_EMULATOR") == "1":
+                import urllib3
+
                 log.warning("SECRET_SYNC_AZURE_EMULATOR=1: dummy credentials and NO TLS verification (lab only)")
+                urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)  # said once, above
                 client = SecretClient(
-                    vault_url, _EmulatorCredential(), verify_challenge_resource=False, connection_verify=False
+                    vault_url,
+                    _EmulatorCredential(),
+                    verify_challenge_resource=False,
+                    connection_verify=False,
+                    **CLIENT_OPTIONS,
                 )
             else:
                 from azure.identity import DefaultAzureCredential
 
-                client = SecretClient(vault_url, DefaultAzureCredential())
+                client = SecretClient(vault_url, DefaultAzureCredential(), **CLIENT_OPTIONS)
         self._client = client
 
     def get(self, secret_id: str) -> str:

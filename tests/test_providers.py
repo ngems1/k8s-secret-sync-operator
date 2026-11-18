@@ -136,3 +136,25 @@ class TestAzure:
         monkeypatch.delenv("SECRET_SYNC_AZURE_EMULATOR")
         assert AzureKeyVault("https://kv.example.net")._client is not None  # DefaultAzureCredential, lazy
         assert _EmulatorCredential().get_token("scope").token == "emulator-token"
+
+    def test_clients_fail_fast(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Short SDK retries: the operator's own retries post Events (drill 2)."""
+        seen: dict[str, Any] = {}
+
+        class Spy:
+            def __init__(self, url: str, credential: Any, **kwargs: Any) -> None:
+                seen.update(kwargs)
+
+        monkeypatch.setattr("azure.keyvault.secrets.SecretClient", Spy)
+        for emulator in ("1", "0"):
+            seen.clear()
+            monkeypatch.setenv("SECRET_SYNC_AZURE_EMULATOR", emulator)
+            AzureKeyVault("https://kv.example.net")
+            assert seen["retry_total"] == 2
+            assert seen["connection_timeout"] == 5
+
+
+def test_aws_client_fails_fast(sm: Any) -> None:
+    config = AwsSecretsManager()._client.meta.config
+    assert (config.connect_timeout, config.read_timeout) == (5, 10)
+    assert config.retries == {"mode": "standard", "total_max_attempts": 3}
