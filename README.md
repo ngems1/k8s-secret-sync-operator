@@ -253,5 +253,3 @@ and read the trade-offs in [docs/adr/](docs/adr/). Part of the
 ## License
 
 [MIT](LICENSE) © ngems1
-#   k 8 s - s e c r e t - s y n c - o p e r a t o r  
- 
