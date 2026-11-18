@@ -17,6 +17,13 @@ FROM python:3.13.18-slim-trixie
 LABEL org.opencontainers.image.source="https://github.com/ngems1/k8s-secret-sync-operator" \
       org.opencontainers.image.description="Annotated ConfigMaps -> Secrets from AWS Secrets Manager / Azure Key Vault" \
       org.opencontainers.image.licenses="MIT"
+# Debian security fixes published after the base image was built (Trivy found a HIGH zlib CVE),
+# and no pip at runtime: the operator runs from its venv, and pip's vendored msgpack, urllib3
+# and setuptools carried HIGH CVEs (found by Trivy in CI, run locally with act).
+RUN apt-get update \
+    && apt-get upgrade -y --no-install-recommends \
+    && rm -rf /var/lib/apt/lists/* \
+    && python -m pip uninstall --yes --no-input pip
 COPY --from=build /app/.venv /app/.venv
 # USER: kopf derives its identity from getpass.getuser(), which fails for a numeric UID with
 # no /etc/passwd entry ("No username set in the environment"): found by the e2e test.
