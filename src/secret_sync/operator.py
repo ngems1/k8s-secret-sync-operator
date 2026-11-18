@@ -63,7 +63,11 @@ def startup(settings: kopf.OperatorSettings, logger: Any, **_: Any) -> None:
     # kopf's own bookkeeping goes into annotations under OUR prefix, not kopf.zalando.org.
     settings.persistence.progress_storage = kopf.AnnotationsProgressStorage(prefix="secret-sync.code-clinic.io")
     settings.persistence.diffbase_storage = kopf.AnnotationsDiffBaseStorage(prefix="secret-sync.code-clinic.io")
-    settings.posting.level = logging.INFO  # INFO and above become Kubernetes Events
+    # Log messages (ours and kopf's "Handler ... failed permanently: <why>") become Kubernetes
+    # Events on the ConfigMap, where its owner looks. kopf 1.45 turned this OFF by default
+    # (posting.loggers=False): without it users saw nothing (found by the e2e).
+    settings.posting.loggers = True
+    settings.posting.level = logging.INFO
     # The Azure SDK logs every HTTP request and response (headers included) at INFO.
     logging.getLogger("azure").setLevel(logging.WARNING)
     try:
