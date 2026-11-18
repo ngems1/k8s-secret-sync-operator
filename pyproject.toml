@@ -1,6 +1,6 @@
 [project]
 name = "k8s-secret-sync-operator"
-version = "0.1.0"
+version = "1.0.0"
 description = "Kubernetes operator: annotated ConfigMaps become Secrets from AWS Secrets Manager or Azure Key Vault"
 readme = "README.md"
 license = "MIT"
