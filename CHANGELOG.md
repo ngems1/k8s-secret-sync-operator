@@ -40,3 +40,6 @@ versions: [Semantic Versioning](https://semver.org/).
 - During a store outage the SDKs' default retries (Azure: 10 with backoff; botocore: 60 s
   connect timeout) blocked a handler for over a minute with no Event → short timeouts, at most
   3 attempts, then the operator's own visible retry (StoreUnavailable Event + backoff).
+- Trivy (CI image job, run locally with act) found HIGH CVEs in the base image: zlib1g, and
+  pip's vendored msgpack/urllib3/setuptools → Debian security updates applied at build, pip
+  removed from the runtime image.
