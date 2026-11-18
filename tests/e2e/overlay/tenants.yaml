@@ -1,0 +1,24 @@
+# team-a and team-b are tenants (policy + RoleBinding); team-c is NOT (no policy, no binding).
+apiVersion: v1
+kind: Namespace
+metadata: {name: team-a}
+---
+apiVersion: v1
+kind: Namespace
+metadata: {name: team-b}
+---
+apiVersion: v1
+kind: Namespace
+metadata: {name: team-c}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata: {name: secret-sync, namespace: team-a}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: secret-sync-secrets}
+subjects: [{kind: ServiceAccount, name: secret-sync, namespace: secret-sync}]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata: {name: secret-sync, namespace: team-b}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: secret-sync-secrets}
+subjects: [{kind: ServiceAccount, name: secret-sync, namespace: secret-sync}]

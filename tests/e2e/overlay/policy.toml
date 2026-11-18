@@ -1,0 +1,6 @@
+[namespaces.team-a]
+aws_prefixes = ["team-a/"]
+azure_vaults = ["https://lowkey-vault.fakes.svc.cluster.local:8443"]
+
+[namespaces.team-b]
+aws_prefixes = ["team-b/"]

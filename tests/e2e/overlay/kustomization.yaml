@@ -1,0 +1,44 @@
+# e2e overlay: the production manifests (deploy/) pointed at in-cluster fakes of AWS Secrets
+# Manager (Moto) and Azure Key Vault (Lowkey Vault), with a 10 s resync.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../../../deploy
+  - fakes.yaml
+  - tenants.yaml
+configMapGenerator:
+  - name: secret-sync-policy
+    namespace: secret-sync
+    behavior: replace
+    files:
+      - policy.toml
+images:
+  - name: ghcr.io/ngems1/k8s-secret-sync-operator
+    newName: secret-sync
+    newTag: e2e
+patches:
+  - target: {kind: Deployment, name: secret-sync}
+    patch: |-
+      - op: add
+        path: /spec/template/spec/containers/0/imagePullPolicy
+        value: Never
+      - op: add
+        path: /spec/template/spec/containers/0/env/-
+        value: {name: AWS_ENDPOINT_URL, value: "http://moto.fakes.svc.cluster.local:5000"}
+      - op: add
+        path: /spec/template/spec/containers/0/env/-
+        value: {name: AWS_ACCESS_KEY_ID, value: test}
+      - op: add
+        path: /spec/template/spec/containers/0/env/-
+        value: {name: AWS_SECRET_ACCESS_KEY, value: test}
+      - op: add
+        path: /spec/template/spec/containers/0/env/-
+        value: {name: SECRET_SYNC_AZURE_EMULATOR, value: "1"}
+      - op: replace
+        path: /spec/template/spec/containers/0/env/1/value
+        value: "10"
+  - target: {kind: NetworkPolicy, name: secret-sync}
+    patch: |-
+      - op: add
+        path: /spec/egress/-
+        value: {ports: [{port: 5000, protocol: TCP}, {port: 8443, protocol: TCP}]}
