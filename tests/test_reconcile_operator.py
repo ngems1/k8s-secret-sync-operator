@@ -183,6 +183,23 @@ class TestOperator:
         with pytest.raises(kopf.PermanentError):
             operator.on_change(**kw)
 
+    def test_resync_warns_when_the_store_lost_the_secret(self, runtime: FakeSecrets) -> None:
+        class Warn(Logs):
+            def warning(self, msg: str) -> None:
+                self.lines.append("warning: " + msg)
+
+        logs = Warn()
+        kw: dict[str, Any] = {
+            "namespace": "team-a",
+            "name": "cm",
+            "uid": "u",
+            "annotations": ann(),
+            "body": {"data": {"K": "team-a/deleted"}},
+            "logger": logs,
+        }
+        operator.resync(**kw)
+        assert logs.lines == ["warning: resync failed, Secret left unchanged: fake: 'team-a/deleted' not found"]
+
     def test_provider_clients_are_cached(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(operator.Runtime, "aws", None)
         monkeypatch.setattr(operator.Runtime, "azure", {})

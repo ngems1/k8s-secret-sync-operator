@@ -80,6 +80,10 @@ def startup(settings: kopf.OperatorSettings, logger: Any, **_: Any) -> None:
     logger.info(f"policy loaded: {len(Runtime.policy.namespaces)} namespace(s) allowed")
 
 
+class StoreError(kopf.PermanentError):
+    """The store answered, but retrying won't help (not found, denied): actionable, never silent."""
+
+
 def sync(namespace: str, name: str, uid: str, annotations: dict[str, str], data: dict[str, Any], logger: Any) -> str:
     """Shared by every handler. Never logs values."""
     try:
@@ -95,7 +99,7 @@ def sync(namespace: str, name: str, uid: str, annotations: dict[str, str], data:
         SYNCS.labels("store_error").inc()
         if exc.retryable:
             raise kopf.TemporaryError(str(exc), delay=30) from None
-        raise kopf.PermanentError(str(exc)) from None
+        raise StoreError(str(exc)) from None
     SYNCS.labels(result).inc()
     LAST_SUCCESS.labels(namespace, name).set_to_current_time()
     if result != "unchanged":
@@ -118,9 +122,14 @@ def resync(**kwargs: Any) -> None:
 
     A rejected ConfigMap (bad spec, policy, takeover) was already reported by on_change; the
     timer re-checks it quietly (the policy may have changed) instead of an ERROR every cycle.
+    Store errors (secret deleted, access denied) are reported every time: they need action.
     """
     try:
         _sync_from(kwargs)
+    except StoreError as exc:
+        # e.g. the secret was deleted from the store: the Secret keeps its last value, but the
+        # owner must know (found by drill 2). One Warning Event per resync interval.
+        kwargs["logger"].warning(f"resync failed, Secret left unchanged: {exc}")
     except kopf.PermanentError as exc:
         kwargs["logger"].debug(f"still rejected: {exc}")
 

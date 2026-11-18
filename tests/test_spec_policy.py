@@ -88,6 +88,7 @@ class TestPolicy:
             ({"namespaces": {"a": {"aws_prefixes": "a/"}}}, "list of non-empty strings"),
             ({"namespaces": {"a": {"aws_prefixes": [""]}}}, "list of non-empty strings"),
             ({"namespaces": {"a": {"aws_prefixes": ["*"]}}}, "must name something"),
+            ({"namespaces": {"a": {"aws_prefixes": ["team"]}}}, "must end with '/'"),
         ],
     )
     def test_invalid_policies(self, data: dict[str, object], error: str) -> None:

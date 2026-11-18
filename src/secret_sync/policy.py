@@ -77,5 +77,9 @@ def parse(data: dict[str, Any]) -> Policy:
                 raise PolicyError(f"policy: [namespaces.{ns}] {name} must be a list of non-empty strings")
         if any(p in ("", "*", "/") for p in prefixes):
             raise PolicyError(f"policy: [namespaces.{ns}] a prefix must name something (no '*' or '/')")
+        # "team" would also match "team-b/..." (found by drill 1): a prefix must end at a "/".
+        unterminated = [p for p in prefixes if not p.endswith("/")]
+        if unterminated:
+            raise PolicyError(f"policy: [namespaces.{ns}] aws_prefixes must end with '/': {', '.join(unterminated)}")
         namespaces[ns] = NamespaceRule(tuple(prefixes), tuple(v.rstrip("/") for v in vaults))
     return Policy(namespaces)
