@@ -108,97 +108,110 @@ def runtime(monkeypatch: pytest.MonkeyPatch) -> FakeSecrets:
 DATA = {"PW": "team-a/db#password", "KEY": "team-a/key"}
 
 
+class Events:
+    """Collects (type, reason, message) like kopf.event would post them."""
+
+    def __init__(self) -> None:
+        self.posted: list[tuple[str, str, str]] = []
+
+    def __call__(self, event_type: str, reason: str, message: str) -> None:
+        self.posted.append((event_type, reason, message))
+
+    @property
+    def reasons(self) -> list[str]:
+        return [r for _, r, _ in self.posted]
+
+
+def run(
+    namespace: str, data: dict[str, str], *, ann_: dict[str, str] | None = None, report: bool = True
+) -> tuple[str, Events, Logs]:
+    events, logs = Events(), Logs()
+    result = operator.sync(namespace, "app-db", "uid-1", ann_ or ann(), data, logs, events, report)
+    return result, events, logs
+
+
 class TestOperator:
-    def test_sync_success_logs_no_values(self, runtime: FakeSecrets) -> None:
-        logs = Logs()
-        assert operator.sync("team-a", "app-db", "uid-1", ann(), DATA, logs) == "created"
+    def test_sync_success_posts_one_event_and_logs_no_values(self, runtime: FakeSecrets) -> None:
+        result, events, logs = run("team-a", DATA)
+        assert result == "created"
+        assert events.posted == [("Normal", "Synced", "Secret app-db created (2 key(s) from aws)")]
         assert logs.lines == ["Secret app-db created (2 key(s) from aws)"]
-        assert not any("pw-1" in line or "k-1" in line for line in logs.lines)
-        assert operator.sync("team-a", "app-db", "uid-1", ann(), DATA, logs) == "unchanged"
-        assert len(logs.lines) == 1  # nothing logged (no Event) when nothing changed
+        assert not any("pw-1" in m or "k-1" in m for _, _, m in events.posted)
+        result, events, _ = run("team-a", DATA)
+        assert (result, events.posted) == ("unchanged", [])  # no write, no Event
 
     @pytest.mark.parametrize(
-        ("namespace", "ann", "data", "match"),
+        ("namespace", "ann_", "data", "match"),
         [
             ("team-a", ann("gcp"), DATA, "must be one of"),
             ("team-b", ann(), DATA, "not allowed to sync"),
             ("team-a", ann(), {"K": "team-b/db"}, "outside this namespace"),
         ],
     )
-    def test_rejections_are_permanent(
-        self, runtime: FakeSecrets, namespace: str, ann: dict[str, str], data: dict[str, str], match: str
+    def test_rejections_post_a_warning_once(
+        self, runtime: FakeSecrets, namespace: str, ann_: dict[str, str], data: dict[str, str], match: str
     ) -> None:
+        events = Events()
         with pytest.raises(kopf.PermanentError, match=match):
-            operator.sync(namespace, "cm", "uid", ann, data, Logs())
+            operator.sync(namespace, "cm", "uid", ann_, data, Logs(), events)
+        assert events.reasons == ["Rejected"]
+        quiet = Events()
+        with pytest.raises(kopf.PermanentError):
+            operator.sync(namespace, "cm", "uid", ann_, data, Logs(), quiet, report_rejections=False)
+        assert quiet.posted == []
         assert runtime.writes == []
 
     def test_store_errors(self, runtime: FakeSecrets, monkeypatch: pytest.MonkeyPatch) -> None:
         down = FakeProvider({}, {"team-a/key": ProviderError("aws: throttled", retryable=True)})
         monkeypatch.setattr(operator.Runtime, "aws", down)
+        events = Events()
         with pytest.raises(kopf.TemporaryError):
-            operator.sync("team-a", "cm", "uid", ann(), {"K": "team-a/key"}, Logs())
-        with pytest.raises(kopf.PermanentError, match="not found"):
-            operator.sync("team-a", "cm", "uid", ann(), {"K": "team-a/missing"}, Logs())
+            operator.sync("team-a", "cm", "uid", ann(), {"K": "team-a/key"}, Logs(), events)
+        with pytest.raises(operator.StoreError, match="not found"):
+            operator.sync("team-a", "cm", "uid", ann(), {"K": "team-a/missing"}, Logs(), events, False)
+        assert events.reasons == ["StoreUnavailable", "StoreError"]  # store errors: always reported
 
-    def test_takeover_is_permanent(self, runtime: FakeSecrets) -> None:
+    def test_takeover_is_rejected(self, runtime: FakeSecrets) -> None:
         runtime.create("team-a", {"metadata": {"name": "cm"}, "data": {}})
+        events = Events()
         with pytest.raises(kopf.PermanentError, match="refusing"):
-            operator.sync("team-a", "cm", "uid", ann(), {"K": "team-a/key"}, Logs())
+            operator.sync("team-a", "cm", "uid", ann(), {"K": "team-a/key"}, Logs(), events)
+        assert events.reasons == ["Rejected"]
 
     def test_not_started_yet_is_temporary(self, runtime: FakeSecrets, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(operator.Runtime, "secrets", None)
         with pytest.raises(kopf.TemporaryError, match="still starting"):
-            operator.sync("team-a", "cm", "uid", ann(), {"K": "team-a/key"}, Logs())
+            operator.sync("team-a", "cm", "uid", ann(), {"K": "team-a/key"}, Logs(), Events())
 
-    def test_handlers_pass_the_kopf_kwargs(self, runtime: FakeSecrets) -> None:
+    def test_handlers_post_through_kopf_and_return_none(
+        self, runtime: FakeSecrets, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        posted: list[tuple[str, str]] = []
+        monkeypatch.setattr(kopf, "event", lambda body, *, type, reason, message: posted.append((type, reason)))
+
+        class Debug(Logs):
+            def debug(self, msg: str) -> None:
+                self.lines.append("debug: " + msg)
+
         kw: dict[str, Any] = {
             "namespace": "team-a",
             "name": "app-db",
             "uid": "uid-1",
             "annotations": ann(),
             "body": {"data": DATA},
-            "logger": Logs(),
+            "logger": Debug(),
         }
-        operator.on_change(**kw)  # returns None: ConfigMaps have no .status for kopf to store results in
+        assert operator.on_change(**kw) is None  # ConfigMaps have no .status to store results in
+        assert operator.resync(**kw) is None
         assert runtime.writes == ["create"]
-        operator.resync(**kw)
-        assert runtime.writes == ["create"]  # unchanged: no write
-
-    def test_resync_is_quiet_about_rejected_configmaps(self, runtime: FakeSecrets) -> None:
-        class Debug(Logs):
-            def debug(self, msg: str) -> None:
-                self.lines.append("debug: " + msg)
-
-        logs = Debug()
-        kw: dict[str, Any] = {
-            "namespace": "team-z",
-            "name": "cm",
-            "uid": "u",
-            "annotations": ann(),
-            "body": {"data": DATA},
-            "logger": logs,
-        }
-        operator.resync(**kw)  # no exception: on_change already reported it
-        assert logs.lines == ["debug: still rejected: namespace 'team-z' is not allowed to sync secrets (policy.toml)"]
+        assert posted == [("Normal", "Synced")]
+        rejected = {**kw, "namespace": "team-z", "logger": Debug()}
+        operator.resync(**rejected)  # quiet: no exception, no Event
+        assert posted == [("Normal", "Synced")]
+        assert rejected["logger"].lines[0].startswith("debug: not synced: namespace 'team-z'")
         with pytest.raises(kopf.PermanentError):
-            operator.on_change(**kw)
-
-    def test_resync_warns_when_the_store_lost_the_secret(self, runtime: FakeSecrets) -> None:
-        class Warn(Logs):
-            def warning(self, msg: str) -> None:
-                self.lines.append("warning: " + msg)
-
-        logs = Warn()
-        kw: dict[str, Any] = {
-            "namespace": "team-a",
-            "name": "cm",
-            "uid": "u",
-            "annotations": ann(),
-            "body": {"data": {"K": "team-a/deleted"}},
-            "logger": logs,
-        }
-        operator.resync(**kw)
-        assert logs.lines == ["warning: resync failed, Secret left unchanged: fake: 'team-a/deleted' not found"]
+            operator.on_change(**rejected)
+        assert posted[-1] == ("Warning", "Rejected")
 
     def test_provider_clients_are_cached(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(operator.Runtime, "aws", None)

@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import logging
 import os
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any, ClassVar
 
@@ -63,11 +64,10 @@ def startup(settings: kopf.OperatorSettings, logger: Any, **_: Any) -> None:
     # kopf's own bookkeeping goes into annotations under OUR prefix, not kopf.zalando.org.
     settings.persistence.progress_storage = kopf.AnnotationsProgressStorage(prefix="secret-sync.code-clinic.io")
     settings.persistence.diffbase_storage = kopf.AnnotationsDiffBaseStorage(prefix="secret-sync.code-clinic.io")
-    # Log messages (ours and kopf's "Handler ... failed permanently: <why>") become Kubernetes
-    # Events on the ConfigMap, where its owner looks. kopf 1.45 turned this OFF by default
-    # (posting.loggers=False): without it users saw nothing (found by the e2e).
-    settings.posting.loggers = True
-    settings.posting.level = logging.INFO
+    # Events are posted explicitly (kopf.event) with clear reasons: Synced, Rejected,
+    # StoreError, StoreUnavailable. kopf's own log lines ("Timer 'resync' succeeded" every
+    # cycle) stay in the logs: posting them as Events buried the useful ones (e2e + drills).
+    settings.posting.loggers = False
     # The Azure SDK logs every HTTP request and response (headers included) at INFO.
     logging.getLogger("azure").setLevel(logging.WARNING)
     try:
@@ -84,8 +84,20 @@ class StoreError(kopf.PermanentError):
     """The store answered, but retrying won't help (not found, denied): actionable, never silent."""
 
 
-def sync(namespace: str, name: str, uid: str, annotations: dict[str, str], data: dict[str, Any], logger: Any) -> str:
-    """Shared by every handler. Never logs values."""
+Post = Callable[[str, str, str], None]  # (type, reason, message) → a Kubernetes Event
+
+
+def sync(
+    namespace: str,
+    name: str,
+    uid: str,
+    annotations: dict[str, str],
+    data: dict[str, Any],
+    logger: Any,
+    post: Post,
+    report_rejections: bool = True,
+) -> str:
+    """Shared by every handler. Never logs or posts values: only ids, counts and reasons."""
     try:
         s = spec.parse(namespace, name, annotations, data)
         Runtime.policy.check(s)
@@ -94,16 +106,24 @@ def sync(namespace: str, name: str, uid: str, annotations: dict[str, str], data:
         result = reconcile.apply(s, reconcile.Owner(name, uid), Runtime.provider(s), Runtime.secrets)
     except (spec.SpecError, policy_mod.PolicyError, reconcile.TakeoverError) as exc:
         SYNCS.labels("rejected").inc()
+        if report_rejections:
+            post("Warning", "Rejected", str(exc))
         raise kopf.PermanentError(str(exc)) from None
     except ProviderError as exc:
         SYNCS.labels("store_error").inc()
         if exc.retryable:
+            post("Warning", "StoreUnavailable", f"{exc}; will retry, Secret left unchanged")
             raise kopf.TemporaryError(str(exc), delay=30) from None
+        # e.g. the secret was deleted from the store: the Secret keeps its last value, but the
+        # owner must know, at every resync (found by drill 2).
+        post("Warning", "StoreError", f"{exc}; Secret left unchanged")
         raise StoreError(str(exc)) from None
     SYNCS.labels(result).inc()
     LAST_SUCCESS.labels(namespace, name).set_to_current_time()
     if result != "unchanged":
-        logger.info(f"Secret {s.secret_name} {result} ({len(s.items)} key(s) from {s.provider})")
+        message = f"Secret {s.secret_name} {result} ({len(s.items)} key(s) from {s.provider})"
+        logger.info(message)
+        post("Normal", "Synced", message)
     return result
 
 
@@ -113,27 +133,29 @@ def sync(namespace: str, name: str, uid: str, annotations: dict[str, str], data:
 @kopf.on.update("configmaps", annotations=SELECT)
 @kopf.on.resume("configmaps", annotations=SELECT)
 def on_change(**kwargs: Any) -> None:
-    _sync_from(kwargs)
+    _sync_from(kwargs, report_rejections=True)
 
 
 @kopf.timer("configmaps", annotations=SELECT, interval=RESYNC_SECONDS, initial_delay=RESYNC_SECONDS, idle=None)
 def resync(**kwargs: Any) -> None:
-    """Picks up rotations in the cloud store; a no-op (no write) when nothing changed.
+    """Picks up rotations in the cloud store; a no-op (no write, no Event) when nothing changed.
 
-    A rejected ConfigMap (bad spec, policy, takeover) was already reported by on_change; the
-    timer re-checks it quietly (the policy may have changed) instead of an ERROR every cycle.
-    Store errors (secret deleted, access denied) are reported every time: they need action.
+    A rejected ConfigMap (bad spec, policy, takeover) was reported once by on_change; the timer
+    re-checks it quietly (the policy may have changed). Store errors get an Event every time.
     """
     try:
-        _sync_from(kwargs)
-    except StoreError as exc:
-        # e.g. the secret was deleted from the store: the Secret keeps its last value, but the
-        # owner must know (found by drill 2). One Warning Event per resync interval.
-        kwargs["logger"].warning(f"resync failed, Secret left unchanged: {exc}")
+        _sync_from(kwargs, report_rejections=False)
     except kopf.PermanentError as exc:
-        kwargs["logger"].debug(f"still rejected: {exc}")
+        kwargs["logger"].debug(f"not synced: {exc}")
 
 
-def _sync_from(kw: dict[str, Any]) -> str:
-    data = dict(kw["body"].get("data") or {})
-    return sync(kw["namespace"], kw["name"], kw["uid"], dict(kw["annotations"]), data, kw["logger"])
+def _sync_from(kw: dict[str, Any], report_rejections: bool) -> str:
+    body = kw["body"]
+
+    def post(event_type: str, reason: str, message: str) -> None:
+        kopf.event(body, type=event_type, reason=reason, message=message)
+
+    data = dict(body.get("data") or {})
+    return sync(
+        kw["namespace"], kw["name"], kw["uid"], dict(kw["annotations"]), data, kw["logger"], post, report_rejections
+    )
