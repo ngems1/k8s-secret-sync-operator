@@ -20,7 +20,8 @@ Operator** (ESO, a CNCF project), with dozens of providers, templating, push sec
 
 ### Option B: build and run this operator in production
 
-- ✅ Exactly the features you need, nothing more; small and auditable (< 500 lines).
+- ✅ Exactly the features you need, nothing more; small and auditable (about 600 lines,
+  comments included).
 - ❌ You own every bug, CVE and Kubernetes upgrade; one maintainer is a bus factor of one.
 
 ### Option C: build it to learn the patterns, recommend ESO for production
