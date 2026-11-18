@@ -13,6 +13,7 @@ Error handling decides what users see (as Kubernetes Events on the ConfigMap):
 
 from __future__ import annotations
 
+import logging
 import os
 from pathlib import Path
 from typing import Any, ClassVar
@@ -62,7 +63,9 @@ def startup(settings: kopf.OperatorSettings, logger: Any, **_: Any) -> None:
     # kopf's own bookkeeping goes into annotations under OUR prefix, not kopf.zalando.org.
     settings.persistence.progress_storage = kopf.AnnotationsProgressStorage(prefix="secret-sync.code-clinic.io")
     settings.persistence.diffbase_storage = kopf.AnnotationsDiffBaseStorage(prefix="secret-sync.code-clinic.io")
-    settings.posting.level = 20  # INFO and above become Kubernetes Events
+    settings.posting.level = logging.INFO  # INFO and above become Kubernetes Events
+    # The Azure SDK logs every HTTP request and response (headers included) at INFO.
+    logging.getLogger("azure").setLevel(logging.WARNING)
     try:
         kube_config.load_incluster_config()
     except kube_config.ConfigException:
@@ -96,17 +99,26 @@ def sync(namespace: str, name: str, uid: str, annotations: dict[str, str], data:
     return result
 
 
+# Handlers return None: kopf stores return values in `.status`, which ConfigMaps don't have
+# (every resync then logged "Merge-patching finished with inconsistencies": found by the e2e).
 @kopf.on.create("configmaps", annotations=SELECT)
 @kopf.on.update("configmaps", annotations=SELECT)
 @kopf.on.resume("configmaps", annotations=SELECT)
-def on_change(**kwargs: Any) -> str:
-    return _sync_from(kwargs)
+def on_change(**kwargs: Any) -> None:
+    _sync_from(kwargs)
 
 
 @kopf.timer("configmaps", annotations=SELECT, interval=RESYNC_SECONDS, initial_delay=RESYNC_SECONDS, idle=None)
-def resync(**kwargs: Any) -> str:
-    """Picks up rotations in the cloud store; a no-op (no write) when nothing changed."""
-    return _sync_from(kwargs)
+def resync(**kwargs: Any) -> None:
+    """Picks up rotations in the cloud store; a no-op (no write) when nothing changed.
+
+    A rejected ConfigMap (bad spec, policy, takeover) was already reported by on_change; the
+    timer re-checks it quietly (the policy may have changed) instead of an ERROR every cycle.
+    """
+    try:
+        _sync_from(kwargs)
+    except kopf.PermanentError as exc:
+        kwargs["logger"].debug(f"still rejected: {exc}")
 
 
 def _sync_from(kw: dict[str, Any]) -> str:

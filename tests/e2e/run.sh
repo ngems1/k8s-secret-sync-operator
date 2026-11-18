@@ -56,6 +56,8 @@ pass "cluster up, image secret-sync:e2e loaded"
 
 log "2/8 fakes, tenants and the operator (deploy/ + tests/e2e/overlay)"
 kustomize build "$here/overlay" | kubectl apply -f - > /dev/null
+# Same tag (secret-sync:e2e) after a rebuild on a reused cluster: force new pods.
+kubectl -n secret-sync rollout restart deploy/secret-sync > /dev/null
 for d in fakes/moto fakes/lowkey-vault secret-sync/secret-sync; do
   kubectl -n "${d%/*}" rollout status "deploy/${d#*/}" --timeout=240s > /dev/null || {
     kubectl -n "${d%/*}" logs "deploy/${d#*/}" --tail=20 || true

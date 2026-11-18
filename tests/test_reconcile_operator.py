@@ -159,8 +159,29 @@ class TestOperator:
             "body": {"data": DATA},
             "logger": Logs(),
         }
-        assert operator.on_change(**kw) == "created"
-        assert operator.resync(**kw) == "unchanged"
+        operator.on_change(**kw)  # returns None: ConfigMaps have no .status for kopf to store results in
+        assert runtime.writes == ["create"]
+        operator.resync(**kw)
+        assert runtime.writes == ["create"]  # unchanged: no write
+
+    def test_resync_is_quiet_about_rejected_configmaps(self, runtime: FakeSecrets) -> None:
+        class Debug(Logs):
+            def debug(self, msg: str) -> None:
+                self.lines.append("debug: " + msg)
+
+        logs = Debug()
+        kw: dict[str, Any] = {
+            "namespace": "team-z",
+            "name": "cm",
+            "uid": "u",
+            "annotations": ann(),
+            "body": {"data": DATA},
+            "logger": logs,
+        }
+        operator.resync(**kw)  # no exception: on_change already reported it
+        assert logs.lines == ["debug: still rejected: namespace 'team-z' is not allowed to sync secrets (policy.toml)"]
+        with pytest.raises(kopf.PermanentError):
+            operator.on_change(**kw)
 
     def test_provider_clients_are_cached(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(operator.Runtime, "aws", None)
