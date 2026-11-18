@@ -1,0 +1,76 @@
+# CI: hub checks (repo, Python, image, manifests) + the operator end to end on kind.
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: "0 6 * * 1" # weekly: new kopf / SDK / Kubernetes / base-image CVEs show up here
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  repo:
+    uses: ngems1/code-clinic/.github/workflows/repo-checks.yml@v1
+
+  python:
+    uses: ngems1/code-clinic/.github/workflows/python-checks.yml@v1
+    with:
+      python-version: "3.13" # the image's Python
+
+  image:
+    uses: ngems1/code-clinic/.github/workflows/docker-checks.yml@v1 # hadolint, build, Trivy
+
+  manifests:
+    uses: ngems1/code-clinic/.github/workflows/kustomize-checks.yml@v1
+    with:
+      paths: "deploy tests/e2e/overlay"
+
+  shell:
+    uses: ngems1/code-clinic/.github/workflows/shell-checks.yml@v1
+    with:
+      bats-tests: "" # the shell code is the e2e test (job below)
+
+  e2e:
+    name: e2e on kind (Moto + Lowkey Vault)
+    needs: [python, manifests]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      # renovate: datasource=github-releases depName=kubernetes-sigs/kustomize extractVersion=^kustomize/v(?<version>.+)$
+      KUSTOMIZE_VERSION: "5.8.3"
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - uses: helm/kind-action@v1.15.2
+        with:
+          version: v0.33.0
+          install_only: true # run.sh creates the cluster
+      - name: install kustomize (checksum verified)
+        run: |
+          cd "$RUNNER_TEMP"
+          base="https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2Fv${KUSTOMIZE_VERSION}"
+          f="kustomize_v${KUSTOMIZE_VERSION}_linux_amd64.tar.gz"
+          curl -fsSLO "$base/$f"
+          curl -fsSL "$base/checksums.txt" | grep " ${f}\$" | sha256sum -c -
+          tar -xzf "$f" kustomize && sudo install kustomize /usr/local/bin/kustomize
+      - name: tests/e2e/run.sh
+        run: tests/e2e/run.sh
+      - name: diagnostics on failure
+        if: failure()
+        run: |
+          export KUBECONFIG=.e2e/kubeconfig
+          kubectl get pods -A || true
+          kubectl -n secret-sync logs deploy/secret-sync --tail=100 || true
+          kubectl get events -A --field-selector type=Warning || true
