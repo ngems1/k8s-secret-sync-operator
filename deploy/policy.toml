@@ -1,0 +1,9 @@
+# Which namespace may sync which secrets: DENY by default (src/secret_sync/policy.py).
+# Mounted into the operator from the ConfigMap secret-sync-policy. Only the platform team
+# may edit it: it is the boundary between tenants.
+[namespaces.team-a]
+aws_prefixes = ["team-a/"]
+azure_vaults = ["https://kv-team-a.vault.azure.net"]
+
+[namespaces.team-b]
+aws_prefixes = ["team-b/"]

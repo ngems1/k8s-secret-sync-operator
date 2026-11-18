@@ -1,0 +1,15 @@
+# Lets the operator manage Secrets in ONE tenant namespace. Copy per tenant, together with its
+# entry in policy.toml (same review).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: secret-sync
+  namespace: team-a
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: secret-sync-secrets
+subjects:
+  - kind: ServiceAccount
+    name: secret-sync
+    namespace: secret-sync

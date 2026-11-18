@@ -1,0 +1,139 @@
+# The operator: namespace, identity, cluster-wide READ of ConfigMaps, the Deployment, and a
+# NetworkPolicy. Secret permissions are NOT here: they are granted per tenant namespace
+# (deploy/tenant-rolebinding.yaml), so the operator can't touch Secrets anywhere else.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: secret-sync
+  labels:
+    pod-security.kubernetes.io/enforce: restricted
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: secret-sync
+  namespace: secret-sync
+  annotations:
+    # EKS: IRSA / Pod Identity role allowed to read the tenants' secret prefixes.
+    eks.amazonaws.com/role-arn: arn:aws:iam::111122223333:role/secret-sync-operator
+    # AKS: Workload Identity client id with "Key Vault Secrets User" on the tenants' vaults.
+    azure.workload.identity/client-id: 00000000-0000-0000-0000-000000000000
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: secret-sync-watch
+rules:
+  # Watch ConfigMaps everywhere; patch = kopf's own bookkeeping annotations.
+  - apiGroups: [""]
+    resources: [configmaps]
+    verbs: [get, list, watch, patch]
+  # Events on the ConfigMaps tell users what happened.
+  - apiGroups: ["", events.k8s.io]
+    resources: [events]
+    verbs: [create]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: secret-sync-watch
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: secret-sync-watch
+subjects:
+  - kind: ServiceAccount
+    name: secret-sync
+    namespace: secret-sync
+---
+# Bound per tenant namespace by deploy/tenant-rolebinding.yaml, never cluster-wide.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: secret-sync-secrets
+rules:
+  - apiGroups: [""]
+    resources: [secrets]
+    verbs: [get, create, update]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: secret-sync
+  namespace: secret-sync
+  labels:
+    app.kubernetes.io/name: secret-sync
+spec:
+  replicas: 1
+  # One operator at a time: kopf runs standalone (no peering), and two instances would race.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: secret-sync
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: secret-sync
+        azure.workload.identity/use: "true"
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9100"
+    spec:
+      serviceAccountName: secret-sync
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: operator
+          image: ghcr.io/ngems1/k8s-secret-sync-operator:1.0.0
+          env:
+            - name: SECRET_SYNC_POLICY
+              value: /etc/secret-sync/policy.toml
+            - name: SECRET_SYNC_RESYNC_SECONDS
+              value: "300"
+            - name: AWS_REGION
+              value: eu-west-1
+          ports:
+            - {name: health, containerPort: 8080}
+            - {name: metrics, containerPort: 9100}
+          livenessProbe:
+            httpGet: {path: /healthz, port: health}
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          resources:
+            requests: {cpu: 50m, memory: 96Mi}
+            limits: {memory: 256Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - {name: policy, mountPath: /etc/secret-sync, readOnly: true}
+      volumes:
+        - name: policy
+          configMap:
+            name: secret-sync-policy
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: secret-sync
+  namespace: secret-sync
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: secret-sync
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - ports:
+        - {port: 9100, protocol: TCP} # Prometheus
+  egress:
+    - ports: # DNS
+        - {port: 53, protocol: UDP}
+        - {port: 53, protocol: TCP}
+    - ports: # Kubernetes API, AWS / Azure endpoints
+        - {port: 443, protocol: TCP}
+        - {port: 6443, protocol: TCP}
