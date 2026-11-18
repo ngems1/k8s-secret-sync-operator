@@ -55,8 +55,11 @@ kind load docker-image secret-sync:e2e --name "$CLUSTER" > /dev/null
 pass "cluster up, image secret-sync:e2e loaded"
 
 log "2/8 fakes, tenants and the operator (deploy/ + tests/e2e/overlay)"
+# A reused cluster (KEEP=1) holds the previous run's state: start from scratch.
+kubectl delete namespace team-a team-b team-c --ignore-not-found --wait=true > /dev/null
 kustomize build "$here/overlay" | kubectl apply -f - > /dev/null
-# Same tag (secret-sync:e2e) after a rebuild on a reused cluster: force new pods.
+# The fakes keep secrets in memory, and the image tag is always secret-sync:e2e: new pods.
+kubectl -n fakes rollout restart deploy/moto deploy/lowkey-vault > /dev/null
 kubectl -n secret-sync rollout restart deploy/secret-sync > /dev/null
 for d in fakes/moto fakes/lowkey-vault secret-sync/secret-sync; do
   kubectl -n "${d%/*}" rollout status "deploy/${d#*/}" --timeout=240s > /dev/null || {
