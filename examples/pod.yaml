@@ -1,0 +1,25 @@
+# Mount the Secret as a volume: when the operator updates it (rotation), the kubelet refreshes
+# the files within about a minute, without restarting the pod. Env vars would need a restart.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: app
+  namespace: team-a
+spec:
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+    seccompProfile: {type: RuntimeDefault}
+  containers:
+    - name: app
+      image: busybox:1.37.0
+      command: ["sh", "-c", "while true; do ls /etc/app-db; sleep 60; done"]
+      securityContext:
+        allowPrivilegeEscalation: false
+        capabilities: {drop: ["ALL"]}
+      volumeMounts:
+        - {name: app-db, mountPath: /etc/app-db, readOnly: true}
+  volumes:
+    - name: app-db
+      secret:
+        secretName: app-db

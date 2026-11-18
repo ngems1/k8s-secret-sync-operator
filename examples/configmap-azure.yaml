@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: signing
+  namespace: team-a
+  annotations:
+    secret-sync.code-clinic.io/sync: "true"
+    secret-sync.code-clinic.io/provider: azure
+    secret-sync.code-clinic.io/vault-url: https://kv-team-a.vault.azure.net
+    secret-sync.code-clinic.io/secret-name: signing-keys   # Secret name differs from the ConfigMap
+data:
+  SIGNING_KEY: signing-key   # Key Vault secret names: letters, digits and dashes

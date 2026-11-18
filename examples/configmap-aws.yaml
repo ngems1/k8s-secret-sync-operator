@@ -1,0 +1,13 @@
+# References only: safe to commit. The operator writes Secret team-a/app-db with the values.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: app-db
+  namespace: team-a
+  annotations:
+    secret-sync.code-clinic.io/sync: "true"
+    secret-sync.code-clinic.io/provider: aws
+data:
+  DB_USER: team-a/app/db#username   # field "username" of the JSON secret team-a/app/db
+  DB_PASSWORD: team-a/app/db#password
+  API_KEY: team-a/app/api-key       # a plain-text secret
